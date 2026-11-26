@@ -22,6 +22,17 @@ class SpecNormalizerService(BaseModuleService):
     ACTION_RULES = {"启用规则": "已启用", "停用规则": "已停用"}
     NEGATIVE_ACTIONS = ["停用规则"]
 
+    def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+        """登记通用规则的同时，派生一条可试判、可更正版本的结构化规则。"""
+        entry, missing = super().create_entry(values)
+        if entry is not None:
+            try:
+                from app.services.workflow import workflow
+                workflow.create_rich_rule_from_entry(entry, values)
+            except Exception:  # noqa: BLE001 - 派生失败不影响通用登记
+                pass
+        return entry, missing
+
     # ---- 业务扩展：规格归一与口径统一 ----
 
     def enable_rule(self, entry_id: int) -> dict[str, Any]:

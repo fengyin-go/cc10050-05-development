@@ -29,3 +29,6 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+    # 允许页面通过统一动作入口提交结构化更正/确认内容；缺省时不影响原有用法。
+    values: dict[str, Any] | None = None
+    operator: str | None = None

@@ -15,6 +15,21 @@
       </div>
     </header>
 
+    <SpecTrialPanel v-if="meta.key === 'spec_normalizer'" @changed="reload" />
+    <BaselineRoundPanel v-if="meta.key === 'price_baseline'" @changed="reload" />
+
+    <div v-if="successMessage" class="inline-success" data-testid="action-success" role="status">
+      <span>{{ successMessage }}</span>
+      <RouterLink
+        v-if="lastRoundId"
+        class="btn primary small"
+        :to="`/price_baseline?round=${lastRoundId}`"
+        data-testid="open-last-round"
+      >
+        打开重算申请{{ lastRoundCode ? ` ${lastRoundCode}` : '' }}
+      </RouterLink>
+    </div>
+
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
@@ -94,8 +109,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 
+import BaselineRoundPanel from '@/components/BaselineRoundPanel.vue'
+import SpecTrialPanel from '@/components/SpecTrialPanel.vue'
 import {
   createEntry,
   downloadEntries,
@@ -110,6 +127,9 @@ const meta = moduleMeta(props.moduleKey)
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const successMessage = ref('')
+const lastRoundId = ref<number | null>(null)
+const lastRoundCode = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = meta.fields.slice(0, 3)
 const showCreate = ref(false)
@@ -165,17 +185,6 @@ async function submitCreate() {
   }
 }
 
-async function runAction(action: string, row: EntryRow) {
-  errorMessage.value = ''
-  try {
-    const result = await applyAction(meta.key, Number(row.id), action)
-    if (!result.ok) throw new Error(result.message)
-    await reload()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '操作失败'
-  }
-}
-
 async function reload() {
   errorMessage.value = ''
   try {
@@ -186,6 +195,39 @@ async function reload() {
     errorMessage.value = error instanceof Error ? error.message : '业务列表读取失败'
   }
 }
+
+async function runAction(action: string, row: EntryRow) {
+  errorMessage.value = ''
+  successMessage.value = ''
+  lastRoundId.value = null
+  lastRoundCode.value = ''
+  try {
+    const result = await applyAction(meta.key, Number(row.id), action)
+    if (!result.ok) throw new Error(result.message)
+    successMessage.value = result.message || '操作完成'
+    const roundId = result.entry?.last_round_id
+    if (roundId != null) {
+      lastRoundId.value = Number(roundId)
+      lastRoundCode.value = String(result.entry?.last_round_code ?? '')
+      window.dispatchEvent(new CustomEvent('recalc-rounds-changed'))
+    }
+    await reload()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '操作失败'
+  }
+}
+
+function onGenericBaselineReload() {
+  void reload()
+}
+
+onMounted(() => {
+  window.addEventListener('generic-baseline-reload', onGenericBaselineReload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('generic-baseline-reload', onGenericBaselineReload)
+})
 
 onMounted(reload)
 </script>

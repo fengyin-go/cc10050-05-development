@@ -22,6 +22,31 @@ class PriceBaselineService(BaseModuleService):
     ACTION_RULES = {"生效基线": "已生效", "重算基线": "待重算"}
     NEGATIVE_ACTIONS = []
 
+    def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
+        """通用行动作：重算基线会真正消费规格归一数据生成一轮重算申请。"""
+        entry = store.find(self.MODULE, entry_id)
+        if entry is None:
+            return None, f"{self.ENTITY} {entry_id} 不存在或已归档"
+
+        if action == "重算基线":
+            # 先保留通用状态流转，再挂工作流轮次（按当前启用规则分类报价）。
+            entry["status"] = "待重算"
+            entry["pending"] = True
+            try:
+                from app.services.workflow import workflow
+                round_row = workflow.create_round_for_baseline_entry(entry)
+                entry["last_round_id"] = round_row.get("id")
+                entry["last_round_code"] = round_row.get("code")
+                return entry, f"已发起重算申请 {round_row.get('code')}，请在重算申请中确认口径与报价"
+            except Exception as exc:  # noqa: BLE001 - 工作流异常不应让通用动作 500
+                return entry, f"基线已标记待重算，但生成重算申请失败：{exc}"
+
+        if action == "生效基线":
+            result = self.activate_baseline(entry_id)
+            return (entry if result.get("ok") else None), str(result.get("message", ""))
+
+        return super().run_action(entry_id, action)
+
     # ---- 业务扩展：基线计算与滚动窗口 ----
 
     def activate_baseline(self, entry_id: int) -> dict[str, Any]:
